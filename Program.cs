@@ -21,28 +21,72 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Add global exception handler middleware
-builder.Services.AddExceptionHandler(options =>
-{
-    options.ExceptionHandler = async context =>
-    {
-        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsJsonAsync(new { Message = "An unexpected error occurred. Please try again later." });
-    };
-});
-
 var app = builder.Build();
 
-app.UseExceptionHandler();
 app.UseCors();
+
+// Logging helper
+ILogger logger = app.Logger;
+
+// Logging middleware for HTTP method, path, and response status code
+app.Use(async (context, next) =>
+{
+    var method = context.Request.Method;
+    var path = context.Request.Path;
+
+    await next();
+
+    var statusCode = context.Response.StatusCode;
+    logger.LogInformation("HTTP {Method} {Path} responded {StatusCode}", method, path, statusCode);
+});
+
+// Custom exception handling middleware
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Unhandled exception occurred.");
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+        var errorResponse = new { error = "Internal server error." };
+        await context.Response.WriteAsJsonAsync(errorResponse);
+    }
+});
+
+// Token validation middleware (place this after app.UseCors() and before other middlewares)
+app.Use(async (context, next) =>
+{
+    // Example: Expect token in Authorization header as "Bearer {token}"
+    var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+    if (authHeader is null || !authHeader.StartsWith("Bearer "))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Missing or invalid token." });
+        return;
+    }
+
+    var token = authHeader.Substring("Bearer ".Length).Trim();
+
+    // Replace this with your real token validation logic
+    var validTokens = new[] { "mysecrettoken123", "another-valid-token" };
+    if (!validTokens.Contains(token))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Invalid token." });
+        return;
+    }
+
+    await next();
+});
 
 // In-memory user store (for demo only)
 var users = new ConcurrentDictionary<int, User>();
 var nextId = 0; // So first user gets ID 1
-
-// Logging helper
-ILogger logger = app.Logger;
 
 // GET: Retrieve all users
 app.MapGet("/users", () =>
