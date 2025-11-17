@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.OpenApi.Models; // Added
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
 using System.Threading;
@@ -10,7 +11,29 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add Swagger services
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "UserManagement API",
+        Version = "v1",
+        Description = "Usage:\nClick Authorize and enter ONLY the token (without 'Bearer '). Then call secured endpoints.\n\nBearer cOd27bWsxHV5SDLDYtTqpagk31dQWoDP"
+    });
+
+    var securityScheme = new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Description = "Enter ONLY the token here (Swagger will add 'Bearer ').",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "Token",
+        Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+    };
+
+    c.AddSecurityDefinition("Bearer", securityScheme);
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement { { securityScheme, Array.Empty<string>() } });
+});
 
 // Add logging
 builder.Logging.ClearProviders();
@@ -60,7 +83,6 @@ app.Use(async (context, next) =>
 // 2. Authentication (token validation) middleware NEXT
 app.Use(async (context, next) =>
 {
-    // Allow unauthenticated access to Swagger UI and OpenAPI endpoints in development
     var env = app.Environment;
     var path = context.Request.Path.Value;
 
@@ -85,8 +107,12 @@ app.Use(async (context, next) =>
     }
 
     var token = authHeader.Substring("Bearer ".Length).Trim();
+    if (token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        // Remove accidental double 'Bearer '
+        token = token.Substring("Bearer ".Length).Trim();
+    }
 
-    // Replace this with your real token validation logic
     var validTokens = new[] { "cOd27bWsxHV5SDLDYtTqpagk31dQWoDP" };
     if (!validTokens.Contains(token))
     {
