@@ -8,6 +8,10 @@ using System.Threading;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Add Swagger services
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
 // Add logging
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -25,22 +29,17 @@ var app = builder.Build();
 
 app.UseCors();
 
+// Enable Swagger middleware in development
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
 // Logging helper
 ILogger logger = app.Logger;
 
-// Logging middleware for HTTP method, path, and response status code
-app.Use(async (context, next) =>
-{
-    var method = context.Request.Method;
-    var path = context.Request.Path;
-
-    await next();
-
-    var statusCode = context.Response.StatusCode;
-    logger.LogInformation("HTTP {Method} {Path} responded {StatusCode}", method, path, statusCode);
-});
-
-// Custom exception handling middleware
+// 1. Error-handling middleware FIRST
 app.Use(async (context, next) =>
 {
     try
@@ -58,10 +57,25 @@ app.Use(async (context, next) =>
     }
 });
 
-// Token validation middleware (place this after app.UseCors() and before other middlewares)
+// 2. Authentication (token validation) middleware NEXT
 app.Use(async (context, next) =>
 {
-    // Example: Expect token in Authorization header as "Bearer {token}"
+    // Allow unauthenticated access to Swagger UI and OpenAPI endpoints in development
+    var env = app.Environment;
+    var path = context.Request.Path.Value;
+
+    if (env.IsDevelopment() && path != null && (
+        path.StartsWith("/swagger") ||
+        path.StartsWith("/swagger-ui") ||
+        path.StartsWith("/v3/api-docs") ||
+        path.StartsWith("/docs") ||
+        path.StartsWith("/openapi")
+    ))
+    {
+        await next();
+        return;
+    }
+
     var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
     if (authHeader is null || !authHeader.StartsWith("Bearer "))
     {
@@ -73,7 +87,7 @@ app.Use(async (context, next) =>
     var token = authHeader.Substring("Bearer ".Length).Trim();
 
     // Replace this with your real token validation logic
-    var validTokens = new[] { "mysecrettoken123", "another-valid-token" };
+    var validTokens = new[] { "cOd27bWsxHV5SDLDYtTqpagk31dQWoDP" };
     if (!validTokens.Contains(token))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -82,6 +96,18 @@ app.Use(async (context, next) =>
     }
 
     await next();
+});
+
+// 3. Logging middleware LAST
+app.Use(async (context, next) =>
+{
+    var method = context.Request.Method;
+    var path = context.Request.Path;
+
+    await next();
+
+    var statusCode = context.Response.StatusCode;
+    logger.LogInformation("HTTP {Method} {Path} responded {StatusCode}", method, path, statusCode);
 });
 
 // In-memory user store (for demo only)
